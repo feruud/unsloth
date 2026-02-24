@@ -197,6 +197,7 @@ def FalconH1Attention_fast_forward_inference(
     position_ids,
     do_prefill = False,
     attention_mask = None,
+    **kwargs,
 ):
     """
     https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L406
@@ -265,7 +266,7 @@ def FalconH1Attention_fast_forward_inference(
 
         # Mistral Nemo 12b has weird dimensions
         if attention_size != hidden_size:
-            self.temp_O = torch.empty((1, bsz, hidden_size), dtype = dtype, device = device)
+            self.temp_O = torch.empty((bsz, 1, hidden_size), dtype = dtype, device = device)
         else:
             self.temp_O = self.temp_QA[1][:, :, :hidden_size]
 
@@ -292,7 +293,7 @@ def FalconH1Attention_fast_forward_inference(
 
     Qn = fast_linear_forward(self.q_proj, Xn, out = self.temp_QA[0])
     Kn = fast_linear_forward(self.k_proj, Xn, out = self.temp_KV[0])
-    Kn = Kn * self.config.key_multiplier
+    Kn.mul_(self.config.key_multiplier)
     Vn = fast_linear_forward(self.v_proj, Xn, out = self.temp_KV[1])
     Qn = Qn.view(
         bsz, 1, n_heads, head_dim

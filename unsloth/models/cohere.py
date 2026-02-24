@@ -254,6 +254,7 @@ def CohereAttention_fast_forward_inference(
     position_ids,
     do_prefill = False,
     attention_mask = None,
+    **kwargs,
 ):
     Xn = hidden_states
     bsz, _, hd = hidden_states.size()
@@ -296,7 +297,7 @@ def CohereAttention_fast_forward_inference(
         # Mistral Nemo 12b has weird dimensions
         if attention_size != hidden_size:
             self.temp_O = torch.empty(
-                (1, bsz, hidden_size), dtype = dtype, device = "cuda:0"
+                (bsz, 1, hidden_size), dtype = dtype, device = "cuda:0"
             )
         else:
             self.temp_O = self.temp_QA[1][:, :, :hidden_size]
@@ -355,7 +356,7 @@ def CohereAttention_fast_forward_inference(
     RH_Q = self.RH_Q
     RH_Q[:, :, :, :h] = Qn[:, :, :, h:]
     RH_Q[:, :, :, h:] = Qn[:, :, :, :h]
-    torch.neg(RH_Q[:, :, :, :h], out = RH_Q[:, :, :, :h])
+    RH_Q[:, :, :, :h].neg_()
     Qn *= cos
     Qn.addcmul_(RH_Q, sin)
 
@@ -364,7 +365,7 @@ def CohereAttention_fast_forward_inference(
     ]  # torch.empty((n_kv_heads, 1, head_dim), dtype = dtype, device = "cuda:0")
     RH_K[:, :, :, :h] = Kn[:, :, :, h:]
     RH_K[:, :, :, h:] = Kn[:, :, :, :h]
-    torch.neg(RH_K[:, :, :, :h], out = RH_K[:, :, :, :h])
+    RH_K[:, :, :, :h].neg_()
     Kn *= cos
     Kn.addcmul_(RH_K, sin)
 

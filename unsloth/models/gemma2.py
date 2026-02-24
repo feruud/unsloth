@@ -352,7 +352,7 @@ def Gemma2Attention_fast_forward_inference(
         )
         self.RH_Q = torch.empty((bsz, n_heads, 1, head_dim), dtype = dtype, device = device)
         # Only for Gemma2
-        self.temp_O = torch.empty((1, bsz, hidden_size), dtype = dtype, device = device)
+        self.temp_O = torch.empty((bsz, 1, hidden_size), dtype = dtype, device = device)
         self.attention = torch.empty(
             (bsz, n_heads, 1, KV_CACHE_INCREMENT + seq_len), dtype = dtype, device = device
         )
@@ -399,7 +399,7 @@ def Gemma2Attention_fast_forward_inference(
     RH_Q = self.RH_Q
     RH_Q[:, :, :, :h] = Qn[:, :, :, h:]
     RH_Q[:, :, :, h:] = Qn[:, :, :, :h]
-    torch.neg(RH_Q[:, :, :, :h], out = RH_Q[:, :, :, :h])
+    RH_Q[:, :, :, :h].neg_()
     Qn *= cos
     Qn.addcmul_(RH_Q, sin)
 
@@ -408,7 +408,7 @@ def Gemma2Attention_fast_forward_inference(
     ]  # torch.empty((n_kv_heads, 1, head_dim), dtype = dtype, device = "cuda:0")
     RH_K[:, :, :, :h] = Kn[:, :, :, h:]
     RH_K[:, :, :, h:] = Kn[:, :, :, :h]
-    torch.neg(RH_K[:, :, :, :h], out = RH_K[:, :, :, :h])
+    RH_K[:, :, :, :h].neg_()
     Kn *= cos
     Kn.addcmul_(RH_K, sin)
 
@@ -446,23 +446,27 @@ def Gemma2Attention_fast_forward_inference(
     # pass
 
     # Attention
-    # if bsz == 1:
+    # [TODO] Gemma2 uses manual matmul for all batch sizes because SDPA does
+    # not support softcapping (tanh logit scaling). If a future PyTorch adds
+    # a softcap param to scaled_dot_product_attention, consider using SDPA
+    # for bsz > 1 to match the llama/qwen3 pattern.
     Qn *= (
         self.scalar
     )  # See https://github.com/ggerganov/llama.cpp/issues/7805#issuecomment-2153349963
     # It seems like doing (Q * scalar) @ K is better than (Q @ K) * scalar to stop overflows
     A = torch_matmul(Qn, Knn.transpose(2, 3), out = self.attention[:, :, :, :cached_len])
-    # if attention_mask is not None: A += attention_mask # Must add attention_mask for batched
+    if attention_mask is not None and isinstance(attention_mask, torch.Tensor):
+        # Slice mask to match K/V when sliding window is active
+        if attention_mask.shape[-1] != A.shape[-1]:
+            attention_mask = attention_mask[:, :, :, -A.shape[-1] :]
+        A += attention_mask
 
     A *= self.reciprocal_t
-    torch_tanh(A, out = A)
+    A.tanh_()
     A *= self.t  # Logit softcapping
 
     A[:] = torch_nn_functional_softmax(A, dim = -1, dtype = torch.float32)  # .to(A.dtype)
     A = torch_matmul(A, Vnn, out = Qn)
-    # else:
-    #     A = scaled_dot_product_attention(Qn, Knn, Vnn, attn_mask = attention_mask, is_causal = False)
-    # pass
     A = A.transpose(1, 2)
     A = A.reshape(bsz, 1, attention_size)
     A = fast_linear_forward(self.o_proj, A, out = self.temp_O)
@@ -492,9 +496,7 @@ def Gemma2Model_fast_forward_inference(
     hidden_states = hidden_states.to(_get_dtype(dtype_from_config(self.config)))
     # 3072**0.5 = 55.5000 in bfloat16, whilst 55.4256 in float32
     # 2048**0.5 = 45.2500 in bfloat16, whilst 45.2548 in float32
-    hidden_states *= torch.tensor(
-        math_sqrt(self.config.hidden_size), dtype = hidden_states.dtype
-    )
+    hidden_states *= math_sqrt(self.config.hidden_size)
 
     bsz, q_len, hd = hidden_states.shape
     seq_len = past_key_values[0][0].shape[-2]
