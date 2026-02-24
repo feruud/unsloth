@@ -14,8 +14,8 @@
 
 from .cross_entropy_loss import (
     fast_cross_entropy_loss,
-    patch_llama_for_causal_lm,
-    unpatch_llama_for_causal_lm,
+    post_patch_loss_function,
+    patch_loss_functions,
 )
 from .rms_layernorm import (
     fast_rms_layernorm,
@@ -25,7 +25,6 @@ from .rms_layernorm import (
 from .layernorm import (
     fast_layernorm,
     patch_layernorm,
-    unpatch_layernorm,
 )
 from .rope_embedding import fast_rope_embedding, inplace_rope_embedding
 from .swiglu import swiglu_fg_kernel, swiglu_DWf_DW_dfg_kernel
@@ -43,8 +42,16 @@ from .fast_lora import (
     apply_lora_mlp_geglu_approx,
     apply_lora_qkv,
     apply_lora_o,
+    fast_lora_forward,
 )
-from .utils import fast_dequantize, fast_gemv, QUANT_STATE, fast_linear_forward, matmul_lora
+from .fp8 import *  # This step is to ensure that we patch the FbgmemFP8Linear and FP8Linear's forward functions before the execution of model creation so that this applies to compiled non fast inference models as well
+from .utils import (
+    fast_dequantize,
+    fast_gemv,
+    QUANT_STATE,
+    fast_linear_forward,
+    matmul_lora,
+)
 
 from .flex_attention import (
     HAS_FLEX_ATTENTION,
@@ -54,8 +61,13 @@ from .flex_attention import (
     create_flex_attention_sliding_window_mask,
 )
 
-try:
-    print("🦥 Unsloth: Will patch your computer to enable 2x faster free finetuning.")
-except:
-    print("Unsloth: Will patch your computer to enable 2x faster free finetuning.")
-pass
+import os
+
+if "UNSLOTH_ZOO_IS_PRESENT" not in os.environ:
+    try:
+        print(
+            "🦥 Unsloth: Will patch your computer to enable 2x faster free finetuning."
+        )
+    except:
+        print("Unsloth: Will patch your computer to enable 2x faster free finetuning.")
+del os
